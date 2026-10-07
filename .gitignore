@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Runtime/generated data
+*.jsonl
+*.log
+dashboard_stats.json
+alerts.jsonl
+combined_monitoring.jsonl
+flow_stats.jsonl
+udp_telemetry.jsonl
+
+# Generated experiment data
+data/
+
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/

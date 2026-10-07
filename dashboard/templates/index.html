@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SDN Network Monitoring</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>SDN NETWORK MONITOR</h1>
+    <p>Real-time network monitoring, alerts and control</p>
+  </div>
+
+  <div class="system-status">
+    <span class="status-dot"></span>
+    <span id="systemStatus">SYSTEM ONLINE</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- OVERVIEW -->
+  <section class="overview-grid">
+
+    <article class="stat-card">
+      <span class="stat-label">HOSTS</span>
+      <strong id="hosts">—</strong>
+      <small>Configured hosts</small>
+    </article>
+
+    <article class="stat-card">
+      <span class="stat-label">ONLINE</span>
+      <strong id="online">—</strong>
+      <small>Currently reachable</small>
+    </article>
+
+    <article class="stat-card">
+      <span class="stat-label">ALERTS</span>
+      <strong id="alertsCount">0</strong>
+      <small>Recent network events</small>
+    </article>
+
+    <article class="stat-card">
+      <span class="stat-label">MAX UTILIZATION</span>
+      <strong id="maxUtil">—</strong>
+      <small>Highest link utilization</small>
+    </article>
+
+  </section>
+
+
+  <!-- NETWORK CONTROLS -->
+  <section class="panel controls-panel">
+
+    <div class="panel-header">
+      <div>
+        <h2>Network Controls</h2>
+        <p>Control traffic generation and network testing</p>
+      </div>
+      <span class="control-status" id="controlStatus">READY</span>
+    </div>
+
+    <div class="control-grid">
+
+      <button class="control-btn primary" id="pingAllBtn">
+        <span class="button-icon">↗</span>
+        <span>
+          <strong>Ping All</strong>
+          <small>Test host connectivity</small>
+        </span>
+      </button>
+
+      <button class="control-btn traffic" id="startTrafficBtn">
+        <span class="button-icon">▶</span>
+        <span>
+          <strong>Generate Traffic</strong>
+          <small>Start network traffic</small>
+        </span>
+      </button>
+
+      <button class="control-btn stop" id="stopTrafficBtn">
+        <span class="button-icon">■</span>
+        <span>
+          <strong>Stop Traffic</strong>
+          <small>Stop active traffic</small>
+        </span>
+      </button>
+
+      <button class="control-btn danger" id="linkDownBtn">
+        <span class="button-icon">↓</span>
+        <span>
+          <strong>Link Down</strong>
+          <small>Simulate link failure</small>
+        </span>
+      </button>
+
+      <button class="control-btn recovery" id="linkUpBtn">
+        <span class="button-icon">↑</span>
+        <span>
+          <strong>Link Up</strong>
+          <small>Restore failed link</small>
+        </span>
+      </button>
+
+    </div>
+
+    <div class="command-output" id="commandOutput">
+      Ready for network commands.
+    </div>
+
+  </section>
+
+
+  <!-- UTILIZATION -->
+  <section class="panel">
+
+    <div class="panel-header">
+      <div>
+        <h2>Traffic & Utilization</h2>
+        <p>Live switch and link statistics</p>
+      </div>
+      <span class="live-indicator">
+        <span></span> LIVE
+      </span>
+    </div>
+
+    <div id="utilization" class="table-container">
+      <div class="empty-state">Waiting for network statistics...</div>
+    </div>
+
+  </section>
+
+
+  <!-- ALERTS + TELEMETRY -->
+  <section class="two-column">
+
+    <section class="panel">
+
+      <div class="panel-header">
+        <div>
+          <h2>Recent Alerts</h2>
+          <p>Latest network events</p>
+        </div>
+      </div>
+
+      <div id="alerts" class="event-list">
+        <div class="empty-state">No alerts yet.</div>
+      </div>
+
+    </section>
+
+
+    <section class="panel">
+
+      <div class="panel-header">
+        <div>
+          <h2>UDP Telemetry</h2>
+          <p>Host telemetry received from agents</p>
+        </div>
+      </div>
+
+      <div id="telemetry" class="table-container">
+        <div class="empty-state">Waiting for telemetry...</div>
+      </div>
+
+    </section>
+
+  </section>
+
+
+  <!-- FLOW STATISTICS -->
+  <section class="panel">
+
+    <div class="panel-header">
+      <div>
+        <h2>Flow Statistics</h2>
+        <p>Recent OpenFlow traffic statistics</p>
+      </div>
+    </div>
+
+    <div id="flows" class="table-container">
+      <div class="empty-state">Waiting for flow statistics...</div>
+    </div>
+
+  </section>
+
+</main>
+
+
+<script>
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+
+function formatValue(value) {
+
+  if (value === null || value === undefined) {
+    return "—";
+  }
+
+  if (typeof value === "number") {
+
+    if (Number.isInteger(value)) {
+      return value.toLocaleString();
+    }
+
+    return value.toFixed(2);
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+
+  return String(value);
+}
+
+
+function formatTime(value) {
+
+  if (!value) {
+    return "—";
+  }
+
+  try {
+    const date = new Date(value);
+
+    if (isNaN(date.getTime())) {
+      return value;
+    }
+
+    return date.toLocaleTimeString();
+  } catch {
+    return value;
+  }
+}
+
+
+function utilizationClass(value) {
+
+  const number = Number(value);
+
+  if (isNaN(number)) {
+    return "";
+  }
+
+  if (number >= 80) {
+    return "critical";
+  }
+
+  if (number >= 60) {
+    return "warning";
+  }
+
+  return "normal";
+}
+
+
+function renderUtilization(dashboard) {
+
+  const container = document.getElementById("utilization");
+
+  if (!dashboard || Object.keys(dashboard).length === 0) {
+    container.innerHTML =
+      '<div class="empty-state">No Ryu statistics available.</div>';
+    return;
+  }
+
+  let switches = dashboard.switches;
+
+  if (!switches) {
+    switches = dashboard;
+  }
+
+  if (typeof switches !== "object") {
+    container.innerHTML =
+      `<div class="info-box">${escapeHtml(formatValue(switches))}</div>`;
+    return;
+  }
+
+  const rows = [];
+
+  for (const [key, value] of Object.entries(switches)) {
+
+    if (value && typeof value === "object") {
+
+      const utilization =
+        value.rx_utilization ??
+        value.tx_utilization ??
+        value.utilization ??
+        value.utilization_pct;
+
+      rows.push(`
+        <tr>
+          <td><strong>${escapeHtml(key)}</strong></td>
+          <td>${escapeHtml(formatValue(value.rx_mbps))} Mbps</td>
+          <td>${escapeHtml(formatValue(value.tx_mbps))} Mbps</td>
+          <td class="${utilizationClass(utilization)}">
+            ${escapeHtml(formatValue(utilization))}${utilization != null ? "%" : ""}
+          </td>
+          <td>${escapeHtml(formatValue(value.rx_packets))}</td>
+          <td>${escapeHtml(formatValue(value.tx_packets))}</td>
+          <td>${escapeHtml(formatValue(value.dropped_packets))}</td>
+        </tr>
+      `);
+
+    } else {
+
+      rows.push(`
+        <tr>
+          <td><strong>${escapeHtml(key)}</strong></td>
+          <td colspan="6">${escapeHtml(formatValue(value))}</td>
+        </tr>
+      `);
+
+    }
+  }
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Switch / Link</th>
+          <th>RX Mbps</th>
+          <th>TX Mbps</th>
+          <th>Utilization</th>
+          <th>RX Packets</th>
+          <th>TX Packets</th>
+          <th>Dropped</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+
+function renderAlerts(alerts) {
+
+  const container = document.getElementById("alerts");
+
+  if (!alerts || alerts.length === 0) {
+    container.innerHTML =
+      '<div class="empty-state">No alerts detected.</div>';
+    return;
+  }
+
+  const recent = alerts.slice(-10).reverse();
+
+  container.innerHTML = recent.map(alert => {
+
+    const type = String(alert.type || "EVENT");
+
+    let className = "info";
+
+    if (type.includes("DOWN") || type.includes("CONGESTION")) {
+      className = "danger";
+    }
+
+    if (type.includes("UP") || type.includes("CLEARED")) {
+      className = "success";
+    }
+
+    return `
+      <div class="alert-item ${className}">
+        <div class="alert-main">
+          <strong>${escapeHtml(type)}</strong>
+          <span>${escapeHtml(
+            alert.link ||
+            alert.message ||
+            "Network event"
+          )}</span>
+        </div>
+
+        <time>${escapeHtml(
+          formatTime(alert.time || alert.timestamp)
+        )}</time>
+      </div>
+    `;
+
+  }).join("");
+}
+
+
+function renderTelemetry(telemetry) {
+
+  const container = document.getElementById("telemetry");
+
+  if (!telemetry || telemetry.length === 0) {
+    container.innerHTML =
+      '<div class="empty-state">No telemetry received.</div>';
+    return;
+  }
+
+  const recent = telemetry.slice(-8).reverse();
+
+  const columns = [
+    "host",
+    "cpu_percent",
+    "memory_percent",
+    "packets_sent",
+    "packets_received"
+  ];
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Host</th>
+          <th>CPU</th>
+          <th>Memory</th>
+          <th>Packets Sent</th>
+          <th>Packets Received</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        ${recent.map(item => `
+          <tr>
+            <td><strong>${escapeHtml(
+              item.host || item.hostname || "—"
+            )}</strong></td>
+
+            <td>${escapeHtml(
+              formatValue(item.cpu_percent)
+            )}${item.cpu_percent != null ? "%" : ""}</td>
+
+            <td>${escapeHtml(
+              formatValue(item.memory_percent)
+            )}${item.memory_percent != null ? "%" : ""}</td>
+
+            <td>${escapeHtml(
+              formatValue(item.packets_sent)
+            )}</td>
+
+            <td>${escapeHtml(
+              formatValue(item.packets_received)
+            )}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+
+function renderFlows(flows) {
+
+  const container = document.getElementById("flows");
+
+  if (!flows || flows.length === 0) {
+    container.innerHTML =
+      '<div class="empty-state">No flow statistics available.</div>';
+    return;
+  }
+
+  const recent = flows.slice(-12).reverse();
+
+  const columns = Object.keys(recent[0] || {}).slice(0, 7);
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          ${columns.map(column =>
+            `<th>${escapeHtml(
+              column.replaceAll("_", " ").toUpperCase()
+            )}</th>`
+          ).join("")}
+        </tr>
+      </thead>
+
+      <tbody>
+        ${recent.map(row => `
+          <tr>
+            ${columns.map(column =>
+              `<td>${escapeHtml(
+                formatValue(row[column])
+              )}</td>`
+            ).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+
+async function refresh() {
+
+  try {
+
+    const response = await fetch("/api/data");
+
+    if (!response.ok) {
+      throw new Error("Dashboard API unavailable");
+    }
+
+    const data = await response.json();
+
+    const dashboard = data.dashboard || {};
+    const alerts = data.alerts || [];
+    const telemetry = data.telemetry || [];
+    const flows = data.flows || [];
+
+    document.getElementById("hosts").textContent =
+      dashboard.hosts ??
+      dashboard.host_count ??
+      "—";
+
+    document.getElementById("online").textContent =
+      dashboard.online ??
+      dashboard.online_hosts ??
+      "—";
+
+    document.getElementById("alertsCount").textContent =
+      alerts.length;
+
+    const values = [];
+
+    function collectUtilization(obj) {
+
+      if (!obj || typeof obj !== "object") {
+        return;
+      }
+
+      for (const [key, value] of Object.entries(obj)) {
+
+        if (
+          typeof value === "number" &&
+          (
+            key.includes("utilization") ||
+            key.includes("util")
+          )
+        ) {
+          values.push(value);
+        }
+
+        if (value && typeof value === "object") {
+          collectUtilization(value);
+        }
+      }
+    }
+
+    collectUtilization(dashboard);
+
+    document.getElementById("maxUtil").textContent =
+      values.length
+        ? Math.max(...values).toFixed(1) + "%"
+        : "—";
+
+    renderUtilization(dashboard);
+    renderAlerts(alerts);
+    renderTelemetry(telemetry);
+    renderFlows(flows);
+
+    document.getElementById("systemStatus").textContent =
+      "SYSTEM ONLINE";
+
+  } catch (error) {
+
+    console.error(error);
+
+    document.getElementById("systemStatus").textContent =
+      "CONNECTION ERROR";
+
+  }
+}
+
+
+async function sendControl(endpoint, label) {
+
+  const output = document.getElementById("commandOutput");
+  const status = document.getElementById("controlStatus");
+
+  output.textContent = `${label} requested...`;
+  status.textContent = "RUNNING";
+
+  try {
+
+    const response = await fetch(endpoint, {
+      method: "POST"
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "Command failed");
+    }
+
+    output.textContent =
+      result.message || `${label} completed.`;
+
+    status.textContent = "READY";
+
+  } catch (error) {
+
+    output.textContent =
+      `${label}: ${error.message}`;
+
+    status.textContent = "ERROR";
+
+  }
+}
+
+
+document.getElementById("pingAllBtn").onclick = () =>
+  sendControl("/api/control/ping-all", "Ping All");
+
+document.getElementById("startTrafficBtn").onclick = () =>
+  sendControl("/api/control/traffic/start", "Generate Traffic");
+
+document.getElementById("stopTrafficBtn").onclick = () =>
+  sendControl("/api/control/traffic/stop", "Stop Traffic");
+
+document.getElementById("linkDownBtn").onclick = () =>
+  sendControl("/api/control/link/down", "Link Down");
+
+document.getElementById("linkUpBtn").onclick = () =>
+  sendControl("/api/control/link/up", "Link Up");
+
+
+refresh();
+
+setInterval(refresh, 2000);
+
+</script>
+
+</body>
+</html>
